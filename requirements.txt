@@ -1,0 +1,20 @@
+# PyTorch (install separately for correct CUDA build):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# RTX 50-series (Blackwell, sm_120) requires torch>=2.7 built against CUDA 12.8+.
+torch>=2.7
+torchvision>=0.22
+
+numpy>=2.0
+opencv-python>=4.9
+pillow>=10.0
+scikit-learn>=1.4
+scikit-image>=0.24
+matplotlib>=3.8
+tensorboard>=2.16
+tqdm>=4.66
+pyyaml>=6.0
+pytest>=8.0
+
+# Extra deps only needed to run the cloned third_party/AnoDDPM reference code
+nibabel>=5.2
+numba>=0.60

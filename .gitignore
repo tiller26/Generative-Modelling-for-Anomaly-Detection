@@ -1,0 +1,28 @@
+# Data (downloaded separately via scripts/download_mvtec.py)
+/data/
+
+# Checkpoints, logs, experiment tracking output
+checkpoints/
+runs/
+*.ckpt
+*.pt
+*.pth
+
+# Third-party reference implementations (cloned, not vendored)
+third_party/*
+!third_party/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

@@ -1,0 +1,26 @@
+# Shared experiment defaults for the AE / VAE / DDIM benchmark.
+# Per-model configs (configs/ae.yaml, configs/vae.yaml, configs/ddim.yaml) should
+# override only what differs from this file.
+
+categories:
+  - bottle
+  - capsule
+  - pill
+
+data:
+  root: data
+  image_size: 256
+  val_fraction: 0.1
+  seed: 42
+  batch_size: 16
+  num_workers: 4
+
+eval:
+  num_iou_thresholds: 50
+  latency:
+    warmup: 5
+    n_runs: 50
+
+logging:
+  runs_dir: runs
+  checkpoints_dir: checkpoints
