@@ -20,11 +20,10 @@ data/               MVTec AD categories (bottle, capsule, pill) — gitignored, 
 src/data/           Dataset loading & preprocessing (MVTecTrainDataset, MVTecTestDataset)
 src/eval/           Evaluation harness: image/pixel AUROC, IoU, latency (src/eval/metrics.py)
 src/utils/          Experiment tracking (TensorBoard + CSV/JSON, src/utils/tracking.py)
-src/models/         AE / VAE / DDIM model implementations (to be added)
+src/models/         AE / VAE / DDIM model implementations, all original (unet.py, diffusion.py; AE/VAE to follow)
 configs/            YAML experiment configs
 scripts/            One-off utility scripts (dataset download, smoke tests)
 tests/              Unit tests (pytest)
-third_party/        Cloned reference implementations (gitignored, see below)
 ```
 
 ## Setup
@@ -59,22 +58,25 @@ directly comparable. Run the unit tests (synthetic data, no trained model needed
 python -m pytest tests/test_metrics.py -v
 ```
 
-## Reference DDIM/AnoDDPM implementation
+## DDIM implementation
 
-`third_party/AnoDDPM` is a clone of the official implementation of
-[AnoDDPM (Wyatt et al., CVPR Workshops 2022)](https://github.com/Julian-Wyatt/AnoDDPM)
-— UNet + Gaussian diffusion with simplex noise — kept as reference/adaptation
-material rather than vendored into `src/`. It's gitignored; reclone with:
+`src/models/unet.py` and `src/models/diffusion.py` are an original from-scratch
+implementation of the standard DDPM training objective (Ho et al. 2020) and
+deterministic DDIM sampling (Song et al. 2020) — no third-party anomaly-detection
+codebase is vendored or adapted. Anomaly scoring follows the usual partial-diffusion
+reconstruction recipe: noise a test image to an intermediate timestep t* < T, run
+the deterministic DDIM reverse process back to t=0, and score anomalies by the
+input/reconstruction residual.
+
+Unit tests (tiny random tensors, CPU, no dataset needed):
 
 ```bash
-git clone https://github.com/Julian-Wyatt/AnoDDPM.git third_party/AnoDDPM
+python -m pytest tests/test_diffusion.py -v
 ```
 
-Note: `third_party/AnoDDPM/simplex.py` needed a one-line fix for a numpy 2.x /
-Windows int32 overflow bug (`np.random.randint` needs `dtype=np.int64`) — reapply
-that if you reclone. Confirm the pipeline runs end-to-end on our real MVTec data
-(a handful of training iterations at reduced resolution, not a real training run):
+End-to-end smoke test on real MVTec data (a few training steps + one DDIM
+reconstruction pass, not a real training run):
 
 ```bash
-python scripts/smoke_test_anoddpm.py --category pill --steps 5
+python scripts/smoke_test_ddim.py --category pill --steps 20
 ```

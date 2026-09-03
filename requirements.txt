@@ -14,7 +14,3 @@ tensorboard>=2.16
 tqdm>=4.66
 pyyaml>=6.0
 pytest>=8.0
-
-# Extra deps only needed to run the cloned third_party/AnoDDPM reference code
-nibabel>=5.2
-numba>=0.60

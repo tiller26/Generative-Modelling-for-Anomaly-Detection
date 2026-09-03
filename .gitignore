@@ -8,10 +8,6 @@ runs/
 *.pt
 *.pth
 
-# Third-party reference implementations (cloned, not vendored)
-third_party/*
-!third_party/.gitkeep
-
 # Python
 __pycache__/
 *.pyc
