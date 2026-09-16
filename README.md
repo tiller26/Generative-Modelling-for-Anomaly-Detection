@@ -80,3 +80,68 @@ reconstruction pass, not a real training run):
 ```bash
 python scripts/smoke_test_ddim.py --category pill --steps 20
 ```
+
+## AE / VAE (Phase 2)
+
+`src/models/autoencoder.py` and `src/models/vae.py` are original, from-scratch
+implementations (plain convolutional encoder/decoder for the AE; the VAE adds
+a mu/logvar encoder, the reparameterization trick, and a KL-divergence loss
+term, reusing the AE's decoder architecture so the two are directly
+comparable). Both detect anomalies the same way: reconstruct the input and
+score anomalies by the input/reconstruction pixel error.
+
+Unit tests (tiny random tensors, CPU, no dataset needed):
+
+```bash
+python -m pytest tests/test_autoencoder.py tests/test_vae.py -v
+```
+
+Train one model on one category (saves to `checkpoints/<model>_<category>/model.pt`,
+gitignored due to size — rerun to reproduce rather than committing weights):
+
+```bash
+python scripts/train.py --model ae --category pill --epochs 100
+python scripts/train.py --model vae --category bottle --epochs 100
+```
+
+Evaluate a trained checkpoint through the shared harness (appends a row to
+`results/summary.csv`):
+
+```bash
+python scripts/evaluate.py --model ae --category pill
+```
+
+Or reproduce every Phase 2 result (6 training runs + 6 evaluations, ~50
+minutes on an RTX 5060):
+
+```bash
+python scripts/run_phase2.py --epochs 100
+```
+
+### Results (128px images, 100 epochs, latent_dim=256)
+
+`evaluate.py` reports image-level AUROC two ways — scoring each image by the
+**mean** vs. the **max** pixel of its anomaly map. Defects are small and
+localized, so averaging over a mostly-normal image dilutes the signal; taking
+the single worst pixel is usually more sensitive. Both are kept in
+`results/summary.csv` rather than silently picking one.
+
+| Model | Category | Image AUROC (mean) | Image AUROC (max) | Pixel AUROC | IoU | Latency (ms) |
+|---|---|---|---|---|---|---|
+| AE | bottle | 0.794 | **0.861** | 0.830 | 0.267 | 1.9 |
+| AE | capsule | 0.563 | **0.688** | 0.849 | 0.199 | 2.3 |
+| AE | pill | **0.774** | 0.610 | 0.841 | 0.171 | 2.8 |
+| VAE | bottle | 0.659 | **0.825** | 0.681 | 0.262 | 2.0 |
+| VAE | capsule | 0.604 | **0.643** | 0.348 | 0.205 | 4.0 |
+| VAE | pill | 0.449 | **0.607** | 0.622 | 0.170 | 2.9 |
+
+Two things worth digging into further rather than treating as final:
+- Max-pooling beats mean-pooling everywhere except AE/pill — worth checking
+  whether that category has diffuse (whole-object) defect types rather than
+  small localized ones, which would explain the reversal.
+- VAE/capsule's pixel AUROC (0.348) is *below* chance (0.5), meaning its
+  anomaly map is anti-correlated with the true defect location for that
+  category — likely the VAE's blurrier reconstructions creating high error at
+  normal but hard-to-reproduce detail (e.g. printed text) rather than at the
+  actual defect. Worth a qualitative look at the reconstructions before
+  trusting this number in the writeup.

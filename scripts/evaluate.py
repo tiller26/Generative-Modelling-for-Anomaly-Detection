@@ -76,9 +76,18 @@ def main() -> None:
 
     # Run every test image through the model once, collecting the anomaly
     # map, the ground-truth mask, and the image-level label (0=good, 1=defect).
+    #
+    # We try TWO ways of turning a per-pixel anomaly map into one image-level
+    # score: the mean pixel value, and the max pixel value. Defects are small,
+    # localized patches on a mostly-normal-looking part, so averaging over the
+    # whole image can drown out a small-but-severe defect in a sea of
+    # near-zero background error. Taking the single worst pixel (max) is
+    # usually more sensitive for this reason -- we report both so the
+    # difference is visible rather than hidden behind one hard-coded choice.
     all_anomaly_maps = []
     all_masks = []
-    all_image_scores = []
+    all_mean_scores = []
+    all_max_scores = []
     all_labels = []
 
     with torch.no_grad():
@@ -89,15 +98,18 @@ def main() -> None:
             anomaly_map = anomaly_map.squeeze(0).cpu().numpy()
             all_anomaly_maps.append(anomaly_map)
             all_masks.append(sample["mask"].squeeze(0).numpy())
-            all_image_scores.append(float(anomaly_map.mean()))
+            all_mean_scores.append(float(anomaly_map.mean()))
+            all_max_scores.append(float(anomaly_map.max()))
             all_labels.append(sample["label"])
 
     anomaly_maps = np.stack(all_anomaly_maps)
     masks = np.stack(all_masks)
-    image_scores = np.array(all_image_scores)
+    mean_scores = np.array(all_mean_scores)
+    max_scores = np.array(all_max_scores)
     labels = np.array(all_labels)
 
-    img_auroc = image_auroc(image_scores, labels)
+    img_auroc_mean = image_auroc(mean_scores, labels)
+    img_auroc_max = image_auroc(max_scores, labels)
     pix_auroc = pixel_auroc(anomaly_maps, masks)
     iou_result = best_threshold_iou(anomaly_maps, masks)
 
@@ -107,7 +119,7 @@ def main() -> None:
     sync_fn = torch.cuda.synchronize if device == "cuda" else None
     latency = measure_latency(lambda x: model.anomaly_map(x), single_image, warmup=5, n_runs=50, sync_fn=sync_fn)
 
-    print(f"[results] image_auroc={img_auroc:.4f} pixel_auroc={pix_auroc:.4f} "
+    print(f"[results] image_auroc(mean/max)={img_auroc_mean:.4f}/{img_auroc_max:.4f} pixel_auroc={pix_auroc:.4f} "
           f"iou={iou_result['iou']:.4f} latency_ms={latency.mean_ms:.2f} (+/- {latency.std_ms:.2f})")
 
     results_dir = REPO_ROOT / "results"
@@ -117,8 +129,14 @@ def main() -> None:
     with open(summary_path, "a", newline="") as f:
         writer = csv.writer(f)
         if write_header:
-            writer.writerow(["model", "category", "image_auroc", "pixel_auroc", "iou", "latency_ms_mean", "latency_ms_p95", "timestamp"])
-        writer.writerow([args.model, args.category, img_auroc, pix_auroc, iou_result["iou"], latency.mean_ms, latency.p95_ms, time.time()])
+            writer.writerow([
+                "model", "category", "image_auroc_mean", "image_auroc_max", "pixel_auroc",
+                "iou", "latency_ms_mean", "latency_ms_p95", "timestamp",
+            ])
+        writer.writerow([
+            args.model, args.category, img_auroc_mean, img_auroc_max, pix_auroc,
+            iou_result["iou"], latency.mean_ms, latency.p95_ms, time.time(),
+        ])
 
     print(f"[done] appended results to {summary_path}")
 
