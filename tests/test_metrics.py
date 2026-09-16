@@ -62,7 +62,41 @@ def test_measure_latency_dummy_function():
         calls["n"] += 1
         return _inputs
 
-    result = measure_latency(fake_infer, inputs=None, warmup=2, n_runs=10)
+    # min_warmup_seconds=0 disables the time-based warmup extension (see
+    # test_measure_latency_warmup_extends_for_slow_min_warmup_seconds below),
+    # so warmup here is exactly the `warmup` argument, like the old behaviour.
+    result = measure_latency(fake_infer, inputs=None, warmup=2, n_runs=10, min_warmup_seconds=0)
     assert result.n_frames == 10
     assert result.mean_ms >= 0
     assert calls["n"] == 12  # warmup + n_runs
+
+
+def test_measure_latency_warmup_extends_until_min_time_elapsed():
+    """A fast dummy function finishes its `warmup` iterations almost
+    instantly, so with min_warmup_seconds set, warmup should keep calling
+    infer_fn past that count until enough real time has passed. This is the
+    fix for the bug where fast configs (few DDIM steps) looked artificially
+    slower than slow configs (many DDIM steps) because they weren't warmed
+    up for as long in real time."""
+    calls = {"n": 0}
+
+    def fake_infer(_inputs):
+        calls["n"] += 1
+
+    measure_latency(fake_infer, inputs=None, warmup=1, n_runs=1, min_warmup_seconds=0.05)
+    # warmup=1 alone would mean 1 warmup call; the time-based minimum should
+    # force many more since each call is near-instant.
+    assert calls["n"] > 1 + 1  # +1 for the single timed n_runs call at the end
+
+
+def test_measure_latency_warmup_respects_max_iters_cap():
+    """Without a cap, a min_warmup_seconds target could loop forever if
+    infer_fn is fast enough that real time barely advances. max_warmup_iters
+    guarantees the function always returns."""
+    def fake_infer(_inputs):
+        pass
+
+    result = measure_latency(
+        fake_infer, inputs=None, warmup=1, n_runs=1, min_warmup_seconds=100, max_warmup_iters=50
+    )
+    assert result.n_frames == 1

@@ -80,16 +80,37 @@ class LatencyResult:
     per_frame_ms: list[float] = field(default_factory=list)
 
 
-def measure_latency(infer_fn, inputs, warmup: int = 5, n_runs: int = 50, sync_fn=None) -> LatencyResult:
+def measure_latency(
+    infer_fn, inputs, warmup: int = 5, n_runs: int = 50, sync_fn=None,
+    min_warmup_seconds: float = 1.0, max_warmup_iters: int = 2000,
+) -> LatencyResult:
     """Measure per-frame inference latency in milliseconds.
 
     infer_fn: callable that runs one forward pass, e.g. `lambda: model(batch)`.
     sync_fn: optional callable to synchronize device timing (e.g. `torch.cuda.synchronize`).
               Pass this when timing GPU code, otherwise CUDA calls return before finishing
               and latency reads as artificially low.
+
+    Many GPUs (especially laptop GPUs) dynamically scale their clock speed:
+    idle/cold means a low, power-saving clock, and it takes real wall-clock
+    time under sustained load before the clock ramps up to full boost speed.
+    A *fixed number* of warmup calls isn't enough to guarantee this ramp-up
+    actually finished -- a config with very few, very fast calls (e.g. only
+    5 DDIM steps) might still be "cold" by the time warmup ends, while a
+    config with many slow calls (e.g. 100 DDIM steps) naturally gets more
+    real warmup time and ends up looking artificially *faster per step*.
+    We saw exactly this in practice: a 25-step DDIM run measured slower than
+    a 100-step run on the same model, which is impossible if both are fully
+    warmed up. So warmup here keeps going until BOTH the iteration count
+    (`warmup`) AND a minimum real time (`min_warmup_seconds`) are satisfied.
     """
-    for _ in range(warmup):
+    warmup_start = time.perf_counter()
+    iterations_done = 0
+    while iterations_done < warmup or (time.perf_counter() - warmup_start) < min_warmup_seconds:
         infer_fn(inputs)
+        iterations_done += 1
+        if iterations_done >= max_warmup_iters:
+            break
     if sync_fn:
         sync_fn()
 

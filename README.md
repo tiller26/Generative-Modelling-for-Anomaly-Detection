@@ -145,3 +145,79 @@ Two things worth digging into further rather than treating as final:
   normal but hard-to-reproduce detail (e.g. printed text) rather than at the
   actual defect. Worth a qualitative look at the reconstructions before
   trusting this number in the writeup.
+
+## DDIM training + latency sweep (Phase 3)
+
+Trains `src/models/unet.py` + `src/models/diffusion.py` (the Phase 1 from-scratch
+DDPM/DDIM implementation) the same way as the AE/VAE: one model per category,
+100 epochs, same [-1, 1] input scaling.
+
+```bash
+python scripts/train_diffusion.py --category bottle --epochs 100
+python scripts/evaluate_diffusion.py --category bottle --t-start 250 --ddim-steps 25
+python scripts/sweep_ddim_steps.py --category bottle   # latency vs. quality across step counts
+```
+
+**A real GPU-memory bug we hit and fixed:** the AE/VAE default batch size (32)
+made the diffusion UNet need ~11.4GB at image_size=128/base_channels=64 — more
+than the 8GB GPU has. Windows doesn't error on this, it silently spills into
+slow shared system memory, which measured **~280x slower per step** (11.5s/step
+instead of 41ms/step) — nothing was broken, it just looked like the code had
+hung. Fixed by dropping the diffusion training batch size to 8 (measured 3GB
+peak, and empirically also faster per-epoch than batch=16). See the comment on
+`--batch-size` in `scripts/train_diffusion.py`.
+
+**A latency-measurement bug we hit and fixed:** the first sweep run produced
+latency numbers that got *worse* going from 25 steps to 50 then better again at
+100 steps — impossible for a strictly sequential process where every step is
+the same fixed cost. Root cause: `measure_latency`'s fixed-iteration warmup
+(`warmup=3` calls) doesn't give a laptop GPU's dynamic clock scaling enough
+real time to ramp up to a stable boost clock before timing starts — and a
+config with few, fast calls (5 DDIM steps) reaches the iteration count with
+far less elapsed real time than a config with many, slow calls (100 steps),
+so short configs got measured "cold" and looked disproportionately slow.
+Fixed in `src/eval/metrics.py`: `measure_latency` now keeps warming up until
+*both* the iteration count *and* a minimum real time (default 1 second) have
+elapsed, regardless of how many iterations that takes. `scripts/remeasure_ddim_latency.py`
+was a one-off fix-up script that re-measured just the (now-correct) latency
+columns without re-running the expensive full-dataset AUROC pass, since that
+part was never affected by this bug.
+
+### Results (t_start=250, image_auroc via max-pooling, 100-epoch checkpoints)
+
+| Model | Category | Image AUROC | Pixel AUROC | IoU | Latency @ 25 steps (ms) |
+|---|---|---|---|---|---|
+| DDIM | bottle | **0.919** | 0.786 | 0.249 | 1273 |
+| DDIM | capsule | 0.725 | **0.835** | 0.192 | 2580 |
+| DDIM | pill | 0.569 | **0.842** | 0.157 | 2520 |
+
+DDIM's image AUROC beats both AE and VAE on bottle (0.919 vs. 0.861 / 0.825)
+and is competitive on pixel AUROC everywhere — but at roughly **1000x the
+latency** of AE/VAE (~2ms vs. ~1300-2600ms per image). That trade-off, not raw
+accuracy, is DDIM's central story for this benchmark.
+
+### Step-count sweep — latency vs. quality (`results/ddim_steps_sweep.csv`)
+
+| Category | Steps | Image AUROC | Latency (ms) |
+|---|---|---|---|
+| bottle | 5 | **0.949** | 504 |
+| bottle | 25 | 0.912 | 2494 |
+| bottle | 100 | 0.929 | 9811 |
+| capsule | 5 | **0.750** | 477 |
+| capsule | 25 | 0.704 | 2465 |
+| capsule | 100 | 0.625 | 7600 |
+| pill | 5 | 0.651 | 366 |
+| pill | 10 | **0.655** | 794 |
+| pill | 100 | 0.632 | 7448 |
+
+Latency scales almost perfectly linearly with step count (confirms the fix
+above worked — e.g. bottle: 504 → 1015 → 2494 → 4900 → 9811ms for 5/10/25/50/100
+steps). The more interesting result: **more steps does not mean better
+detection** — every category's best image AUROC came from 5 or 10 steps, not
+100. That means the practical choice for a real inspection line is the cheap
+one: 5-10 steps gets equal-or-better detection at roughly 1/15th the latency
+of 100 steps. Worth digging into *why* in the writeup (hypothesis: with a
+fixed 100-epoch training budget, the network's noise prediction may not be
+equally well-calibrated at every timestep, so very fine-grained stepping can
+compound small errors rather than average them out) — not obvious that this
+generalizes to a longer training schedule.
