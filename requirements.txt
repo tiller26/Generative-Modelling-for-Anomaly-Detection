@@ -14,3 +14,8 @@ tensorboard>=2.16
 tqdm>=4.66
 pyyaml>=6.0
 pytest>=8.0
+
+# GUI prototype (app/gui.py). On Windows, torch must be imported before
+# PyQt5 in any script that uses both -- see the warning comment at the top
+# of app/gui.py.
+PyQt5>=5.15

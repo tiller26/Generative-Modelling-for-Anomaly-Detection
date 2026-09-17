@@ -221,3 +221,36 @@ fixed 100-epoch training budget, the network's noise prediction may not be
 equally well-calibrated at every timestep, so very fine-grained stepping can
 compound small errors rather than average them out) — not obvious that this
 generalizes to a longer training schedule.
+
+## Comparison plots and qualitative figures (Phase 4)
+
+```bash
+python scripts/plot_results.py                # bar charts + step-count sweep plot -> figures/
+python scripts/generate_qualitative_figures.py # per-category input/reconstruction/anomaly-map/GT grids -> figures/
+```
+
+`figures/qualitative_*.png` visually confirm two of the quantitative findings
+above: capsule's VAE anomaly map is dominated by background noise rather than
+the actual crack (matches its below-chance 0.348 pixel AUROC), and DDIM's
+pill reconstruction leaves the red-dot defects largely intact rather than
+"fixing" them (matches its worst-of-the-three 0.569 image AUROC there).
+
+## GUI prototype
+
+```bash
+python app/gui.py
+```
+
+Pick a category and model, load a test image (defaults to browsing that
+category's `data/<category>/test/` folder), click **Run Detection**, and see
+the reconstruction + anomaly heatmap rendered live. For DDIM, the step-count
+spinbox lets you see the Phase 3 latency/quality trade-off interactively —
+drop it to 5 steps and the result is both faster and often just as good.
+
+**A real bug worth knowing about if you touch this file:** on Windows, `torch`
+must be imported *before* `PyQt5` anywhere both are used in the same process —
+importing PyQt5 first loads a conflicting shared DLL that makes torch's own
+DLL loading crash with `OSError: [WinError 1114]`. Confirmed by testing both
+import orders directly. `app/gui.py` already has the correct order and a
+warning comment; don't let an auto-formatter or "cleanup" reorder/alphabetize
+those imports.
