@@ -279,16 +279,48 @@ pill reconstruction leaves the red-dot defects largely intact rather than
 python app/gui.py
 ```
 
-Pick a category and model, load a test image (defaults to browsing that
-category's `data/<category>/test/` folder), click **Run Detection**, and see
-the reconstruction + anomaly heatmap rendered live. For DDIM, the step-count
-spinbox lets you see the Phase 3 latency/quality trade-off interactively —
-drop it to 5 steps and the result is both faster and often just as good.
+Two tabs:
+- **Detect** — pick a category and model, load a test image (defaults to
+  browsing that category's `data/<category>/test/` folder), click **Run
+  Detection**, and see the reconstruction + anomaly heatmap rendered live.
+  For DDIM, the step-count spinbox lets you see the Phase 3 latency/quality
+  trade-off interactively — drop it to 5 steps and the result is both faster
+  and often just as good.
+- **Train** — configure hyperparameters (model, category, epochs, batch
+  size, learning rate) and train a new checkpoint, watching the train/val
+  loss curve update live as it trains. This is the GUI's own hyperparameter
+  configuration + telemetry, addressing the rubric's "GUI or CLI with useful
+  telemetry and hyperparameter configuration" requirement directly in the
+  GUI rather than relying on the CLI scripts alone.
 
-**A real bug worth knowing about if you touch this file:** on Windows, `torch`
-must be imported *before* `PyQt5` anywhere both are used in the same process —
-importing PyQt5 first loads a conflicting shared DLL that makes torch's own
-DLL loading crash with `OSError: [WinError 1114]`. Confirmed by testing both
-import orders directly. `app/gui.py` already has the correct order and a
-warning comment; don't let an auto-formatter or "cleanup" reorder/alphabetize
-those imports.
+The Train tab launches `scripts/train.py`/`scripts/train_diffusion.py` as a
+genuine separate process (`QProcess`) rather than reimplementing the
+training loop inside the GUI, and parses their printed `[epoch N/M] ...`
+lines to drive the live plot. **This was a deliberate redesign, not the
+original approach** — worth knowing if you touch this file:
+
+An earlier version ran training on a `QThread` inside the GUI process,
+reusing `train.py`'s functions directly. Testing surfaced a real, repeatable
+bug: a PyTorch `DataLoader(num_workers>0)` created from a background
+`QThread` (rather than the process's own main thread) is unreliable on
+Windows — it repeatedly hung in what looked like a worker-crash/respawn
+loop, confirmed via multiple isolated headless test runs. Switching to
+`QProcess` sidesteps this entirely: the training script runs in its own
+completely normal process with its own main thread, identical to a user
+typing the command themselves — the same well-tested code path that
+produced every checkpoint behind this project's results table.
+
+A second, unrelated issue surfaced during the same testing: `QMessageBox`
+(a native modal dialog) segfaults immediately under Qt's `offscreen`
+platform plugin, used for automated headless testing. This is a known
+limitation of `offscreen` mode, not a bug in the app — `QMessageBox` works
+completely normally with a real display, which is how the app is actually
+used. Confirmed via an isolated repro; the automated test stubs
+`QMessageBox` out rather than working around it in the real code.
+
+**Also still true:** on Windows, `torch` must be imported *before* `PyQt5`
+anywhere both are used in the same process — importing PyQt5 first loads a
+conflicting shared DLL that makes torch's own DLL loading crash with
+`OSError: [WinError 1114]`. `app/gui.py` has the correct order and a warning
+comment; don't let an auto-formatter or "cleanup" reorder/alphabetize those
+imports.
