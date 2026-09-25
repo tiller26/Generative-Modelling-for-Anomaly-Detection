@@ -53,7 +53,7 @@ def main() -> None:
         if write_header:
             writer.writerow([
                 "category", "t_start", "ddim_steps", "image_auroc_max",
-                "pixel_auroc", "iou", "latency_ms_mean", "latency_ms_p95", "timestamp",
+                "pixel_auroc", "iou", "psnr", "ssim", "latency_ms_mean", "latency_ms_p95", "timestamp",
             ])
 
         for ddim_steps in args.steps:
@@ -62,11 +62,13 @@ def main() -> None:
 
             print(f"[ddim_steps={ddim_steps:>3}] image_auroc_max={results['image_auroc_max']:.4f} "
                   f"pixel_auroc={results['pixel_auroc']:.4f} iou={results['iou']:.4f} "
+                  f"psnr={results['psnr']:.2f} ssim={results['ssim']:.4f} "
                   f"latency_ms={results['latency_ms_mean']:.2f}")
 
             writer.writerow([
                 args.category, args.t_start, ddim_steps, results["image_auroc_max"],
-                results["pixel_auroc"], results["iou"], results["latency_ms_mean"], results["latency_ms_p95"], time.time(),
+                results["pixel_auroc"], results["iou"], results["psnr"], results["ssim"],
+                results["latency_ms_mean"], results["latency_ms_p95"], time.time(),
             ])
             f.flush()
 

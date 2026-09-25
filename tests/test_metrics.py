@@ -9,6 +9,7 @@ from src.eval.metrics import (
     image_auroc,
     measure_latency,
     pixel_auroc,
+    reconstruction_quality,
 )
 
 
@@ -100,3 +101,33 @@ def test_measure_latency_warmup_respects_max_iters_cap():
         fake_infer, inputs=None, warmup=1, n_runs=1, min_warmup_seconds=100, max_warmup_iters=50
     )
     assert result.n_frames == 1
+
+
+def test_reconstruction_quality_returns_expected_keys():
+    originals = np.zeros((2, 3, 8, 8), dtype=np.float32)
+    reconstructions = np.zeros((2, 3, 8, 8), dtype=np.float32)
+    quality = reconstruction_quality(originals, reconstructions)
+    assert set(quality.keys()) == {"psnr", "ssim"}
+
+
+def test_reconstruction_quality_near_identical_images_score_highly():
+    rng = np.random.default_rng(0)
+    originals = rng.uniform(-1, 1, size=(4, 3, 16, 16)).astype(np.float32)
+    reconstructions = originals + rng.normal(0, 0.01, size=originals.shape).astype(np.float32)
+
+    quality = reconstruction_quality(originals, reconstructions)
+    assert quality["ssim"] > 0.9
+    assert quality["psnr"] > 20
+
+
+def test_reconstruction_quality_is_better_for_closer_images():
+    rng = np.random.default_rng(0)
+    originals = rng.uniform(-1, 1, size=(4, 3, 16, 16)).astype(np.float32)
+    close_reconstructions = originals + rng.normal(0, 0.01, size=originals.shape).astype(np.float32)
+    far_reconstructions = rng.uniform(-1, 1, size=(4, 3, 16, 16)).astype(np.float32)
+
+    close_quality = reconstruction_quality(originals, close_reconstructions)
+    far_quality = reconstruction_quality(originals, far_reconstructions)
+
+    assert close_quality["psnr"] > far_quality["psnr"]
+    assert close_quality["ssim"] > far_quality["ssim"]

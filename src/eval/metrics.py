@@ -11,6 +11,48 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from sklearn.metrics import roc_auc_score
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
+
+
+def reconstruction_quality(originals: np.ndarray, reconstructions: np.ndarray, data_range: float = 2.0) -> dict:
+    """PSNR and SSIM between original images and their reconstructions,
+    averaged over the batch, using scikit-image's standard implementations
+    (same reasoning as using sklearn for AUROC above: these are well-known,
+    independently-verified metric formulas, not something worth re-deriving
+    by hand -- what's original in this project is the AE/VAE/DDIM models
+    themselves, not the yardsticks used to measure them).
+
+    Only meaningful on GOOD (non-defective) images: a low score on a
+    defective image is ambiguous -- it could mean "poor reconstruction
+    quality" or "correctly refused to reproduce the defect," which is
+    exactly the behaviour we WANT. Mixing defective images in here would
+    make the number impossible to interpret cleanly, so callers should only
+    pass images known to be normal.
+
+    originals / reconstructions: (N, channels, height, width) arrays, both
+    on the same [-1, 1] scale every model in this project uses -- hence
+    data_range=2.0 (from -1 to 1), not the more common 255 (8-bit images) or
+    1.0 ([0, 1]-scaled images).
+
+    PSNR (Peak Signal-to-Noise Ratio): higher is better, measured in
+    decibels. It is directly derived from mean squared error, so it answers
+    "how large is the pixel-value error, on average."
+
+    SSIM (Structural Similarity Index): ranges from -1 to 1, higher is
+    better. Unlike PSNR, it also accounts for local structure (edges,
+    texture) rather than treating every pixel independently, so two images
+    that "look" similar to a human but differ in exact pixel values can
+    still score highly.
+    """
+    psnr_values = []
+    ssim_values = []
+    for original, reconstruction in zip(originals, reconstructions):
+        psnr_values.append(peak_signal_noise_ratio(original, reconstruction, data_range=data_range))
+        # channel_axis=0 tells skimage our array is (channels, height, width)
+        # rather than its default assumption of (height, width, channels).
+        ssim_values.append(structural_similarity(original, reconstruction, data_range=data_range, channel_axis=0))
+
+    return {"psnr": float(np.mean(psnr_values)), "ssim": float(np.mean(ssim_values))}
 
 
 def image_auroc(image_scores: np.ndarray, image_labels: np.ndarray) -> float:

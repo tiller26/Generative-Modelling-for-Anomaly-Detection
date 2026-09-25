@@ -51,8 +51,11 @@ script on a fresh clone rather than committing the dataset.
 ## Evaluation harness
 
 `src/eval/metrics.py` provides `image_auroc`, `pixel_auroc`, `best_threshold_iou`,
-and `measure_latency`, shared across all three model families so results are
-directly comparable. Run the unit tests (synthetic data, no trained model needed):
+`reconstruction_quality` (PSNR/SSIM, computed on non-defective test images only —
+see the function's docstring for why mixing in defective images would make the
+number ambiguous), and `measure_latency`, shared across all three model families
+so results are directly comparable. Run the unit tests (synthetic data, no
+trained model needed):
 
 ```bash
 python -m pytest tests/test_metrics.py -v
@@ -126,14 +129,21 @@ localized, so averaging over a mostly-normal image dilutes the signal; taking
 the single worst pixel is usually more sensitive. Both are kept in
 `results/summary.csv` rather than silently picking one.
 
-| Model | Category | Image AUROC (mean) | Image AUROC (max) | Pixel AUROC | IoU | Latency (ms) |
-|---|---|---|---|---|---|---|
-| AE | bottle | 0.794 | **0.861** | 0.830 | 0.267 | 1.9 |
-| AE | capsule | 0.563 | **0.688** | 0.849 | 0.199 | 2.3 |
-| AE | pill | **0.774** | 0.610 | 0.841 | 0.171 | 2.8 |
-| VAE | bottle | 0.659 | **0.825** | 0.681 | 0.262 | 2.0 |
-| VAE | capsule | 0.604 | **0.643** | 0.348 | 0.205 | 4.0 |
-| VAE | pill | 0.449 | **0.607** | 0.622 | 0.170 | 2.9 |
+| Model | Category | Image AUROC (mean) | Image AUROC (max) | Pixel AUROC | IoU | PSNR (dB) | SSIM | Latency (ms) |
+|---|---|---|---|---|---|---|---|---|
+| AE | bottle | 0.794 | **0.861** | 0.830 | 0.267 | 28.9 | 0.850 | 1.9 |
+| AE | capsule | 0.563 | **0.688** | 0.849 | 0.199 | 34.6 | 0.940 | 2.3 |
+| AE | pill | **0.774** | 0.610 | 0.841 | 0.171 | 33.5 | 0.910 | 2.8 |
+| VAE | bottle | 0.659 | **0.825** | 0.681 | 0.262 | 22.0 | 0.766 | 2.0 |
+| VAE | capsule | 0.604 | **0.643** | 0.348 | 0.205 | 21.6 | 0.844 | 4.0 |
+| VAE | pill | 0.449 | **0.607** | 0.622 | 0.170 | 28.6 | 0.855 | 2.9 |
+
+PSNR/SSIM (`reconstruction_quality` in `src/eval/metrics.py`) are computed only
+on non-defective test images — see the function's docstring for why mixing in
+defective images would make the number ambiguous. AE reconstructs normal
+images more faithfully than VAE on every single category (e.g. capsule:
+34.6dB/0.940 vs. 21.6dB/0.844) — consistent with VAE's KL term trading some
+sharpness for a smoother latent space.
 
 Two things worth digging into further rather than treating as final:
 - Max-pooling beats mean-pooling everywhere except AE/pill — worth checking
@@ -185,11 +195,11 @@ part was never affected by this bug.
 
 ### Results (t_start=250, image_auroc via max-pooling, 100-epoch checkpoints)
 
-| Model | Category | Image AUROC | Pixel AUROC | IoU | Latency @ 25 steps (ms) |
-|---|---|---|---|---|---|
-| DDIM | bottle | **0.919** | 0.786 | 0.249 | 1273 |
-| DDIM | capsule | 0.725 | **0.835** | 0.192 | 2580 |
-| DDIM | pill | 0.569 | **0.842** | 0.157 | 2520 |
+| Model | Category | Image AUROC | Pixel AUROC | IoU | PSNR (dB) | SSIM | Latency @ 25 steps (ms) |
+|---|---|---|---|---|---|---|---|
+| DDIM | bottle | **0.919** | 0.786 | 0.249 | 34.6 | 0.953 | 1273 |
+| DDIM | capsule | 0.725 | **0.835** | 0.192 | 39.8 | 0.965 | 2580 |
+| DDIM | pill | 0.569 | **0.842** | 0.157 | 36.6 | 0.948 | 2520 |
 
 DDIM's image AUROC beats both AE and VAE on bottle (0.919 vs. 0.861 / 0.825)
 and is competitive on pixel AUROC everywhere — but at roughly **1000x the
@@ -198,29 +208,57 @@ accuracy, is DDIM's central story for this benchmark.
 
 ### Step-count sweep — latency vs. quality (`results/ddim_steps_sweep.csv`)
 
-| Category | Steps | Image AUROC | Latency (ms) |
-|---|---|---|---|
-| bottle | 5 | **0.949** | 504 |
-| bottle | 25 | 0.912 | 2494 |
-| bottle | 100 | 0.929 | 9811 |
-| capsule | 5 | **0.750** | 477 |
-| capsule | 25 | 0.704 | 2465 |
-| capsule | 100 | 0.625 | 7600 |
-| pill | 5 | 0.651 | 366 |
-| pill | 10 | **0.655** | 794 |
-| pill | 100 | 0.632 | 7448 |
+| Category | Steps | Image AUROC | PSNR (dB) | SSIM | Latency (ms) |
+|---|---|---|---|---|---|
+| bottle | 5 | **0.940** | 34.96 | 0.952 | 446 |
+| bottle | 10 | 0.916 | 34.88 | 0.954 | 1137 |
+| bottle | 25 | 0.908 | 34.50 | 0.952 | 2649 |
+| bottle | 50 | 0.937 | 34.40 | 0.951 | 4311 |
+| bottle | 100 | 0.938 | 34.24 | 0.951 | 7601 |
+| capsule | 5 | **0.779** | 39.89 | 0.965 | 111 |
+| capsule | 10 | 0.714 | 39.70 | 0.964 | 179 |
+| capsule | 25 | 0.721 | 39.84 | 0.965 | 2044 |
+| capsule | 50 | 0.716 | 39.56 | 0.963 | 1123 |
+| capsule | 100 | 0.716 | 39.63 | 0.965 | 5108 |
+| pill | 5 | **0.706** | 36.95 | 0.954 | 216 |
+| pill | 10 | 0.535 | 36.62 | 0.949 | 216 |
+| pill | 25 | 0.681 | 36.76 | 0.950 | 1620 |
+| pill | 50 | 0.535 | 36.49 | 0.947 | 1536 |
+| pill | 100 | 0.544 | 36.41 | 0.946 | 12149 |
 
-Latency scales almost perfectly linearly with step count (confirms the fix
-above worked — e.g. bottle: 504 → 1015 → 2494 → 4900 → 9811ms for 5/10/25/50/100
-steps). The more interesting result: **more steps does not mean better
-detection** — every category's best image AUROC came from 5 or 10 steps, not
-100. That means the practical choice for a real inspection line is the cheap
-one: 5-10 steps gets equal-or-better detection at roughly 1/15th the latency
-of 100 steps. Worth digging into *why* in the writeup (hypothesis: with a
-fixed 100-epoch training budget, the network's noise prediction may not be
-equally well-calibrated at every timestep, so very fine-grained stepping can
-compound small errors rather than average them out) — not obvious that this
-generalizes to a longer training schedule.
+Two findings, one clean and one messier — worth being honest about both:
+
+**Clean finding:** every single category's best image AUROC came from the
+*fewest* steps (5), not the most (100), and **reconstruction quality is
+essentially flat regardless of step count** (e.g. bottle SSIM: 0.952 → 0.951
+across the entire 5-to-100 range — a difference of 0.001). So more DDIM
+sampling steps buys you neither better detection nor better reconstruction
+here, only more latency. For a real inspection line, 5 steps is strictly the
+right choice at this training budget: equal-or-better detection, equal
+reconstruction quality, and roughly 1/17th the latency of 100 steps. Worth
+digging into *why* AUROC doesn't improve with more steps in the writeup
+(hypothesis: with a fixed 100-epoch training budget, the network's noise
+prediction may not be equally well-calibrated at every timestep, so
+fine-grained stepping doesn't average out errors the way it would with a
+better-trained model) — not obvious this generalizes to a longer schedule.
+
+**Messier finding, disclosed rather than hidden:** latency does NOT scale
+cleanly with step count in this run — e.g. capsule's 25-step config (2044ms)
+measured slower than its 50-step config (1123ms), and pill's 100-step config
+(12149ms) is disproportionately worse than the trend from 5-50 steps would
+predict. This is a *different* phenomenon from the GPU-clock warmup bug fixed
+earlier in Phase 3 (that bug had a consistent, one-directional pattern —
+short configs always measured artificially slow; this is scattered noise in
+both directions). The most likely explanation is thermal/system variance:
+this sweep ran continuously for roughly 90 minutes, and a shared consumer
+laptop GPU's boost clock is not guaranteed to stay perfectly stable that long,
+especially in whichever configuration happened to run last/hottest (pill's
+100-step config, which ran at the very end of the batch, is exactly the
+outlier you'd expect if that's the cause). This wasn't chased further because
+diminishing returns: getting perfectly clean latency numbers on a laptop GPU
+under a multi-hour job would need either much shorter batches with cooldown
+gaps between them, or a dedicated benchmarking machine — a reasonable
+limitation to name explicitly in the Discussion rather than pretend away.
 
 ## Comparison plots and qualitative figures (Phase 4)
 

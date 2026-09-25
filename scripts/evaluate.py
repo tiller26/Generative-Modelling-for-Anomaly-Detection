@@ -24,7 +24,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.mvtec_dataset import MVTecTestDataset  # noqa: E402
-from src.eval.metrics import best_threshold_iou, image_auroc, measure_latency, pixel_auroc  # noqa: E402
+from src.eval.metrics import (  # noqa: E402
+    best_threshold_iou,
+    image_auroc,
+    measure_latency,
+    pixel_auroc,
+    reconstruction_quality,
+)
 from src.models.autoencoder import Autoencoder  # noqa: E402
 from src.models.vae import VAE  # noqa: E402
 
@@ -89,11 +95,18 @@ def main() -> None:
     all_mean_scores = []
     all_max_scores = []
     all_labels = []
+    # Reconstruction quality (PSNR/SSIM) only makes sense on GOOD images --
+    # see the docstring on reconstruction_quality() for why mixing in
+    # defective images would make the number ambiguous. We already compute a
+    # reconstruction for every image above, so this just keeps the ones we
+    # need instead of running the model a second time.
+    good_images = []
+    good_reconstructions = []
 
     with torch.no_grad():
         for sample in test_dataset:
             image = sample["image"].unsqueeze(0).to(device)
-            anomaly_map, _reconstruction = model.anomaly_map(image)
+            anomaly_map, reconstruction = model.anomaly_map(image)
 
             anomaly_map = anomaly_map.squeeze(0).cpu().numpy()
             all_anomaly_maps.append(anomaly_map)
@@ -101,6 +114,10 @@ def main() -> None:
             all_mean_scores.append(float(anomaly_map.mean()))
             all_max_scores.append(float(anomaly_map.max()))
             all_labels.append(sample["label"])
+
+            if sample["label"] == 0:
+                good_images.append(sample["image"].numpy())
+                good_reconstructions.append(reconstruction.squeeze(0).cpu().numpy())
 
     anomaly_maps = np.stack(all_anomaly_maps)
     masks = np.stack(all_masks)
@@ -112,6 +129,7 @@ def main() -> None:
     img_auroc_max = image_auroc(max_scores, labels)
     pix_auroc = pixel_auroc(anomaly_maps, masks)
     iou_result = best_threshold_iou(anomaly_maps, masks)
+    quality = reconstruction_quality(np.stack(good_images), np.stack(good_reconstructions))
 
     # Latency: time a single-image forward pass (encode + decode), which is
     # what matters for a real-time inspection line -- not batched throughput.
@@ -120,7 +138,8 @@ def main() -> None:
     latency = measure_latency(lambda x: model.anomaly_map(x), single_image, warmup=5, n_runs=50, sync_fn=sync_fn)
 
     print(f"[results] image_auroc(mean/max)={img_auroc_mean:.4f}/{img_auroc_max:.4f} pixel_auroc={pix_auroc:.4f} "
-          f"iou={iou_result['iou']:.4f} latency_ms={latency.mean_ms:.2f} (+/- {latency.std_ms:.2f})")
+          f"iou={iou_result['iou']:.4f} psnr={quality['psnr']:.2f} ssim={quality['ssim']:.4f} "
+          f"latency_ms={latency.mean_ms:.2f} (+/- {latency.std_ms:.2f})")
 
     results_dir = REPO_ROOT / "results"
     results_dir.mkdir(exist_ok=True)
@@ -131,11 +150,11 @@ def main() -> None:
         if write_header:
             writer.writerow([
                 "model", "category", "image_auroc_mean", "image_auroc_max", "pixel_auroc",
-                "iou", "latency_ms_mean", "latency_ms_p95", "timestamp",
+                "iou", "psnr", "ssim", "latency_ms_mean", "latency_ms_p95", "timestamp",
             ])
         writer.writerow([
             args.model, args.category, img_auroc_mean, img_auroc_max, pix_auroc,
-            iou_result["iou"], latency.mean_ms, latency.p95_ms, time.time(),
+            iou_result["iou"], quality["psnr"], quality["ssim"], latency.mean_ms, latency.p95_ms, time.time(),
         ])
 
     print(f"[done] appended results to {summary_path}")

@@ -111,6 +111,14 @@ def main() -> None:
         figures_dir / "iou.png",
     )
     grouped_bar_chart(
+        summary_rows, "psnr", "Reconstruction quality: PSNR (good images only)", "PSNR (dB)",
+        figures_dir / "psnr.png",
+    )
+    grouped_bar_chart(
+        summary_rows, "ssim", "Reconstruction quality: SSIM (good images only)", "SSIM",
+        figures_dir / "ssim.png",
+    )
+    grouped_bar_chart(
         summary_rows, "latency_ms_mean", "Inference latency per image", "Latency (ms, log scale)",
         figures_dir / "latency.png", log_scale=True,
     )

@@ -29,7 +29,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.data.mvtec_dataset import MVTecTestDataset  # noqa: E402
-from src.eval.metrics import best_threshold_iou, image_auroc, measure_latency, pixel_auroc  # noqa: E402
+from src.eval.metrics import (  # noqa: E402
+    best_threshold_iou,
+    image_auroc,
+    measure_latency,
+    pixel_auroc,
+    reconstruction_quality,
+)
 from src.models.diffusion import GaussianDiffusion  # noqa: E402
 from src.models.unet import UNet  # noqa: E402
 
@@ -71,10 +77,15 @@ def evaluate_config(model, diffusion, test_dataset, device, t_start: int, ddim_s
     all_mean_scores = []
     all_max_scores = []
     all_labels = []
+    # Reconstruction quality (PSNR/SSIM) only makes sense on GOOD images --
+    # see reconstruction_quality()'s docstring. We already reconstruct every
+    # image above, so this just keeps the ones we need.
+    good_images = []
+    good_reconstructions = []
 
     for sample in test_dataset:
         image = sample["image"].unsqueeze(0).to(device)
-        anomaly_map, _reconstruction = anomaly_map_fn(image)
+        anomaly_map, reconstruction = anomaly_map_fn(image)
 
         anomaly_map = anomaly_map.squeeze(0).cpu().numpy()
         all_anomaly_maps.append(anomaly_map)
@@ -82,6 +93,10 @@ def evaluate_config(model, diffusion, test_dataset, device, t_start: int, ddim_s
         all_mean_scores.append(float(anomaly_map.mean()))
         all_max_scores.append(float(anomaly_map.max()))
         all_labels.append(sample["label"])
+
+        if sample["label"] == 0:
+            good_images.append(sample["image"].numpy())
+            good_reconstructions.append(reconstruction.squeeze(0).cpu().numpy())
 
     anomaly_maps = np.stack(all_anomaly_maps)
     masks = np.stack(all_masks)
@@ -93,6 +108,7 @@ def evaluate_config(model, diffusion, test_dataset, device, t_start: int, ddim_s
     img_auroc_max = image_auroc(max_scores, labels)
     pix_auroc = pixel_auroc(anomaly_maps, masks)
     iou_result = best_threshold_iou(anomaly_maps, masks)
+    quality = reconstruction_quality(np.stack(good_images), np.stack(good_reconstructions))
 
     single_image = test_dataset[0]["image"].unsqueeze(0).to(device)
     sync_fn = torch.cuda.synchronize if device == "cuda" else None
@@ -103,6 +119,8 @@ def evaluate_config(model, diffusion, test_dataset, device, t_start: int, ddim_s
         "image_auroc_max": img_auroc_max,
         "pixel_auroc": pix_auroc,
         "iou": iou_result["iou"],
+        "psnr": quality["psnr"],
+        "ssim": quality["ssim"],
         "latency_ms_mean": latency.mean_ms,
         "latency_ms_p95": latency.p95_ms,
     }
@@ -132,6 +150,7 @@ def main() -> None:
 
     print(f"[results] image_auroc(mean/max)={results['image_auroc_mean']:.4f}/{results['image_auroc_max']:.4f} "
           f"pixel_auroc={results['pixel_auroc']:.4f} iou={results['iou']:.4f} "
+          f"psnr={results['psnr']:.2f} ssim={results['ssim']:.4f} "
           f"latency_ms={results['latency_ms_mean']:.2f}")
 
     results_dir = REPO_ROOT / "results"
@@ -143,11 +162,11 @@ def main() -> None:
         if write_header:
             writer.writerow([
                 "model", "category", "image_auroc_mean", "image_auroc_max", "pixel_auroc",
-                "iou", "latency_ms_mean", "latency_ms_p95", "timestamp",
+                "iou", "psnr", "ssim", "latency_ms_mean", "latency_ms_p95", "timestamp",
             ])
         writer.writerow([
             "ddim", args.category, results["image_auroc_mean"], results["image_auroc_max"], results["pixel_auroc"],
-            results["iou"], results["latency_ms_mean"], results["latency_ms_p95"], time.time(),
+            results["iou"], results["psnr"], results["ssim"], results["latency_ms_mean"], results["latency_ms_p95"], time.time(),
         ])
 
     print(f"[done] appended results to {summary_path}")
