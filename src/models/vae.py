@@ -86,7 +86,7 @@ def kl_divergence(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
 
 
 class VAE(nn.Module):
-    def __init__(self, latent_dim: int = 256, image_size: int = 128, kl_weight: float = 0.001):
+    def __init__(self, latent_dim: int = 256, image_size: int = 128, kl_weight: float = 1e-6):
         super().__init__()
         self.encoder = VAEEncoder(latent_dim, image_size)
         self.decoder = Decoder(latent_dim, image_size)
@@ -99,13 +99,21 @@ class VAE(nn.Module):
         return reconstruction, mu, logvar
 
     def training_loss(self, x: torch.Tensor) -> torch.Tensor:
-        """Total loss = reconstruction error + a (small) penalty for the
-        latent distribution drifting away from a standard normal shape.
+        """Total loss = reconstruction error + kl_weight * KL divergence.
 
-        kl_weight is kept small (default 0.001) on purpose: if the KL term
-        is too strong, the network prioritises a "tidy" latent space over
-        actually reconstructing the image well, which would blur out real
-        defects along with genuine detail and hurt anomaly detection.
+        IMPORTANT -- loss scale: the reconstruction term is a MEAN over every
+        pixel (so it is tiny, ~1e-3 once trained) while the KL term is a SUM
+        over latent dimensions (hundreds of nats). They are on very different
+        scales, so kl_weight must be tiny (default 1e-6) to balance them. Our
+        first run used 1e-3, which made the KL penalty larger than the whole
+        reconstruction loss: the encoder collapsed to the prior (0 of 256
+        latent dims active), the decoder ignored the input, and anomaly
+        detection got worse than a plain AE. See README "VAE posterior
+        collapse" for the diagnosis and the kl_weight sweep that fixed it.
+
+        kl_weight is mutable on purpose: scripts/train.py ramps it up from 0
+        over the first epochs ("KL annealing") so the decoder learns to use
+        the latent code before the KL penalty kicks in.
         """
         reconstruction, mu, logvar = self.forward(x)
         reconstruction_loss = torch.nn.functional.mse_loss(reconstruction, x)

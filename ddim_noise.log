@@ -1,0 +1,12 @@
+bottle steps=25: max=0.944 top1%=0.940 mean=0.905 pixel=0.787 psnr=34.5
+bottle steps=5: max=0.943 top1%=0.951 mean=0.924 pixel=0.820 psnr=34.9
+capsule steps=25: max=0.738 top1%=0.764 mean=0.711 pixel=0.831 psnr=39.8
+capsule steps=5: max=0.750 top1%=0.765 mean=0.690 pixel=0.835 psnr=40.0
+pill steps=25: max=0.651 top1%=0.789 mean=0.807 pixel=0.849 psnr=36.7
+pill steps=5: max=0.662 top1%=0.800 mean=0.812 pixel=0.857 psnr=37.0
+bottle steps=25: max=0.908 top1%=0.959 mean=0.883 pixel=0.789 psnr=34.6
+bottle steps=5: max=0.910 top1%=0.966 mean=0.898 pixel=0.820 psnr=34.9
+capsule steps=25: max=0.668 top1%=0.716 mean=0.709 pixel=0.837 psnr=39.7
+capsule steps=5: max=0.681 top1%=0.720 mean=0.698 pixel=0.841 psnr=39.9
+pill steps=25: max=0.582 top1%=0.695 mean=0.669 pixel=0.848 psnr=36.5
+pill steps=5: max=0.587 top1%=0.727 mean=0.672 pixel=0.856 psnr=36.8

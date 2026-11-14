@@ -5,11 +5,13 @@ import numpy as np
 import pytest
 
 from src.eval.metrics import (
+    aggregate_image_scores,
     best_threshold_iou,
     image_auroc,
     measure_latency,
     pixel_auroc,
     reconstruction_quality,
+    top_fraction_mean,
 )
 
 
@@ -131,3 +133,28 @@ def test_reconstruction_quality_is_better_for_closer_images():
 
     assert close_quality["psnr"] > far_quality["psnr"]
     assert close_quality["ssim"] > far_quality["ssim"]
+
+
+def test_top_fraction_mean_picks_the_highest_pixels():
+    maps = np.zeros((2, 10, 10))          # 100 pixels per image
+    maps[0, 0, :5] = 1.0                  # 5 pixels at 1.0 -> top5% mean = 1.0
+    maps[1, 0, 0] = 1.0                   # 1 pixel at 1.0  -> top1% mean = 1.0, top5% = 0.2
+    assert np.allclose(top_fraction_mean(maps, 0.05), [1.0, 0.2])
+    assert np.allclose(top_fraction_mean(maps, 0.01), [1.0, 1.0])
+
+
+def test_top_fraction_mean_uses_at_least_one_pixel_and_full_fraction_is_mean():
+    maps = np.random.RandomState(0).rand(3, 4, 4)
+    assert np.allclose(top_fraction_mean(maps, 1e-9), maps.reshape(3, -1).max(axis=1))
+    assert np.allclose(top_fraction_mean(maps, 1.0), maps.reshape(3, -1).mean(axis=1))
+
+
+def test_aggregate_image_scores_has_every_aggregation_and_ordering():
+    maps = np.random.RandomState(1).rand(5, 16, 16)
+    scores = aggregate_image_scores(maps)
+    assert set(scores) == {"max", "mean", "top0.1%", "top1%", "top5%"}
+    # a smaller worst-fraction can only be larger than a bigger one, and max >= everything
+    assert np.all(scores["max"] >= scores["top0.1%"] - 1e-12)
+    assert np.all(scores["top0.1%"] >= scores["top1%"] - 1e-12)
+    assert np.all(scores["top1%"] >= scores["top5%"] - 1e-12)
+    assert np.all(scores["top5%"] >= scores["mean"] - 1e-12)

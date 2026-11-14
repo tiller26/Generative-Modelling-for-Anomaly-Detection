@@ -6,6 +6,7 @@ framework produced the anomaly maps. An "anomaly map" is a per-pixel score
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -64,6 +65,38 @@ def image_auroc(image_scores: np.ndarray, image_labels: np.ndarray) -> float:
     if len(np.unique(image_labels)) < 2:
         raise ValueError("image_auroc requires both normal and anomalous samples")
     return float(roc_auc_score(image_labels, image_scores))
+
+
+# Image-level scores are built from a per-pixel anomaly map. Defects are small,
+# so how the pixels are pooled matters (see the README "image-score aggregation"
+# experiment): "max" is the single worst pixel, "mean" averages the whole map,
+# and "topX%" averages only the worst X% of pixels. top1% was the best single
+# choice on average over models, categories and seeds, but the best choice is
+# category dependent (bottle: top1%, capsule: max, pill: mean/top5%).
+TOP_FRACTIONS = {"top0.1%": 0.001, "top1%": 0.01, "top5%": 0.05}
+
+
+def top_fraction_mean(anomaly_maps: np.ndarray, fraction: float) -> np.ndarray:
+    """Per-image mean of the highest `fraction` of pixel scores.
+
+    anomaly_maps: (N, H, W). At least one pixel is always used, so a tiny
+    fraction degrades gracefully to "max" on very small maps.
+    """
+    flat = np.asarray(anomaly_maps).reshape(len(anomaly_maps), -1)
+    n_pixels = flat.shape[1]
+    k = max(1, math.ceil(fraction * n_pixels))
+    # np.partition moves the k largest values to the end without a full sort
+    top_k = np.partition(flat, n_pixels - k, axis=1)[:, n_pixels - k:]
+    return top_k.mean(axis=1)
+
+
+def aggregate_image_scores(anomaly_maps: np.ndarray) -> dict:
+    """{aggregation name: (N,) image scores} for max, mean and the top-X% means."""
+    flat = np.asarray(anomaly_maps).reshape(len(anomaly_maps), -1)
+    scores = {"max": flat.max(axis=1), "mean": flat.mean(axis=1)}
+    for name, fraction in TOP_FRACTIONS.items():
+        scores[name] = top_fraction_mean(anomaly_maps, fraction)
+    return scores
 
 
 def pixel_auroc(anomaly_maps: np.ndarray, gt_masks: np.ndarray) -> float:

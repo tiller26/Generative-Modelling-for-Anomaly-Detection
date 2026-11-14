@@ -63,3 +63,22 @@ def test_anomaly_map_shape_and_non_negative():
     assert anomaly_map.shape == (2, 32, 32)
     assert reconstruction.shape == x.shape
     assert (anomaly_map >= 0).all()
+
+
+def test_kl_weight_scales_the_loss_and_zero_weight_is_plain_reconstruction():
+    # Guards the posterior-collapse fix: scripts/train.py anneals
+    # model.kl_weight from 0 upward by assigning to it each epoch, so the
+    # attribute must actually drive the loss. At weight 0 the loss must equal
+    # a plain autoencoder's MSE (no KL term at all).
+    model = make_tiny_model()
+    x = torch.randn(4, 3, 32, 32)
+
+    torch.manual_seed(0)
+    model.kl_weight = 0.0
+    loss_no_kl = model.training_loss(x)
+
+    torch.manual_seed(0)  # same sampled noise, so the only difference is the weight
+    model.kl_weight = 1.0
+    loss_with_kl = model.training_loss(x)
+
+    assert loss_with_kl > loss_no_kl
